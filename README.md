@@ -1,4 +1,4 @@
-# ELF Loader – a minimal ELF loader for Linux
+# ELF Loader, a minimal ELF loader for Linux
 
 This project implements a compact, educational ELF loader for Linux systems. It is designed to demonstrate how the kernel loads and prepares statically linked ELF executables for execution, rather than to provide a production-ready loader. The focus is correctness and understanding of ELF internals, virtual memory, and process initialization, not performance or feature completeness.
 
