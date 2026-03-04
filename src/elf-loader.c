@@ -49,17 +49,17 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 	 * Validate ELF class is 64-bit (ELFCLASS64) - "Not a 64-bit ELF" + exit code 4 if invalid.
 	 */
 
-	// cream pointer catre header-ul elf
+	// create pointer to the ELF header
 	Elf64_Ehdr *elf_hdr = (Elf64_Ehdr *)elf_contents;
 
-	// verif indicii pt primii 4 octeti ai fis(magic bytes)
+	// verify indices for the first 4 bytes of the file (magic bytes)
 	if (elf_hdr->e_ident[EI_MAG0] != ELFMAG0 || elf_hdr->e_ident[EI_MAG1] != ELFMAG1 ||
 	    elf_hdr->e_ident[EI_MAG2] != ELFMAG2 || elf_hdr->e_ident[EI_MAG3] != ELFMAG3) {
 		fprintf(stderr, "Not a valid ELF file\n");
 		exit(3);
 	}
 
-	// verif daca fis elf e de 64 de biti
+	// verify if the ELF file is 64-bit
 	if (elf_hdr->e_ident[EI_CLASS] != ELFCLASS64) {
 		fprintf(stderr, "Not a 64-bit ELF\n");
 		exit(4);
@@ -72,10 +72,9 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 	 * - Map the segments in memory. Permissions can be RWX for now.
 	 */
 
-	//
 	uintptr_t load_base = 0;
 
-	// alocam mem pt PIE,verif daca nu a esuat si slvam adr in load_base
+	// allocate memory for PIE, verify it didn't fail and save address in load_base
 	if (elf_hdr->e_type == ET_DYN) {
 		void *pie_mem = mmap(NULL, 0x100000000UL, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
@@ -87,22 +86,22 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		load_base = (uintptr_t)pie_mem;
 	}
 
-	// ptr catre primul header de program
+	// pointer to the first program header
 	Elf64_Phdr *prg_hdr = (Elf64_Phdr *)((char *)elf_contents + elf_hdr->e_phoff);
 
-	// obt marime pag,daca nu asumam val standard
+	// obtain page size, if not assume standard value
 	long pg_size = sysconf(_SC_PAGESIZE);
 
 	if (pg_size <= 0)
 		pg_size = 4096;
 
-	// parcurgem toate hdr si daca nu e PT_LOAD,il ignoram
+	// iterate through all headers and if it's not PT_LOAD, ignore it
 	for (int i = 0; i < elf_hdr->e_phnum; i++) {
 		if (prg_hdr[i].p_type != PT_LOAD)
 			continue;
 
-		// calc adr virtuala,alinerea la inceput de pag,
-		// offset-ul si ajustam lungimea la multiplu de pg_size
+		// calculate virtual address, align to page start,
+		// the offset and adjust length to multiple of pg_size
 		uintptr_t vr_addr = load_base + prg_hdr[i].p_vaddr;
 		uintptr_t align_addr = vr_addr & ~(pg_size - 1);
 		size_t pg_off = vr_addr - align_addr;
@@ -111,7 +110,7 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		if (len % pg_size)
 			len = ((len / pg_size) + 1) * pg_size;
 
-		// mapam segm in mmorie cu perm RWX si verif daca nu a esuat
+		// map segment in memory with RWX permissions and verify it didn't fail
 		void *mem_segm = mmap((void *)align_addr, len, PROT_READ | PROT_WRITE | PROT_EXEC,
 					   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
 		if (mem_segm == MAP_FAILED) {
@@ -119,11 +118,11 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 			exit(1);
 		}
 
-		// copiem din fisier in mem mapata
+		// copy from file to mapped memory
 		if (prg_hdr[i].p_filesz > 0)
 			memcpy((char *)mem_segm + pg_off, (char *)elf_contents + prg_hdr[i].p_offset, prg_hdr[i].p_filesz);
 
-		// compl cu 0 zona din mem care nu e acoperita de fisier
+		// fill with 0 the memory area not covered by the file
 		if (prg_hdr[i].p_memsz > prg_hdr[i].p_filesz)
 			memset((char *)mem_segm + pg_off + prg_hdr[i].p_filesz, 0, prg_hdr[i].p_memsz - prg_hdr[i].p_filesz);
 	}
@@ -135,12 +134,12 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 	 *	- Use mprotect() or map with the correct permissions directly using mmap().
 	 */
 
-	// parcurgem toate hdr si daca nu e PT_LOAD,il ignoram
+	// iterate through all headers and if it's not PT_LOAD, ignore it
 	for (int i = 0; i < elf_hdr->e_phnum; i++) {
 		if (prg_hdr[i].p_type != PT_LOAD)
 			continue;
 
-		// calc adr virtuala si lg segm aliniata la inceput de pag
+		// calculate virtual address and segment length aligned to page start
 		uintptr_t vr_addr = load_base + prg_hdr[i].p_vaddr;
 		uintptr_t align_addr = vr_addr & ~(pg_size - 1);
 		size_t pg_off = vr_addr - align_addr;
@@ -149,7 +148,7 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		if (len % pg_size)
 			len = ((len / pg_size) + 1) * pg_size;
 
-		// set perm in functie de flag-uri
+		// set permissions based on flags
 		int prot = 0;
 
 		if (prg_hdr[i].p_flags & PF_R)
@@ -159,7 +158,7 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		if (prg_hdr[i].p_flags & PF_X)
 			prot |= PROT_EXEC;
 
-		// aplicam perm de mai sus pe mem mapata
+		// apply the above permissions to mapped memory
 		if (mprotect((void *)align_addr, len, prot) < 0) {
 			perror("mprotect");
 			exit(1);
@@ -175,13 +174,13 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 	 */
 	void *sp = NULL;
 
-	// numaram var de mediu
+	// count environment variables
 	int env_cnt = 0;
 
 	for (char **e = envp; e && *e; ++e)
 		env_cnt++;
 
-	// cream stiva procesului de 8MB si verif daca nu a esuat
+	// create the process stack of 8MB and verify it didn't fail
 	size_t stack_sz = 8 * 1024 * 1024;
 	char *stack_base = mmap(NULL, stack_sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
@@ -190,10 +189,10 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		exit(1);
 	}
 
-	//setam cursor pt scriere in stiva
+	// set cursor for writing in the stack
 	char *stack_ptr = stack_base + stack_sz;
 
-	// stocam adr fiecarui arg in vectorul de ptr
+	// store address of each argument in the pointer vector
 	char **argv_ptrs = malloc(sizeof(char *) * argc);
 
 	if (!argv_ptrs) {
@@ -201,7 +200,7 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		exit(1);
 	}
 
-	// copiem argm pe stiva si salvam adr in argv_ptrs
+	// copy arguments to stack and save address in argv_ptrs
 	for (int i = argc - 1; i >= 0; i--) {
 		size_t l = strlen(argv[i]) + 1;
 
@@ -210,7 +209,7 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		argv_ptrs[i] = stack_ptr;
 	}
 
-	// acelasi procedeu,dar pt variab de mediu
+	// same procedure, but for environment variables
 	char **env_ptrs = NULL;
 
 	if (env_cnt) {
@@ -228,17 +227,17 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		}
 	}
 
-	// rezervam 16 octeti pt AT_RANDOM si init cu val random
+	// reserve 16 bytes for AT_RANDOM and initialize with random value
 	stack_ptr -= 16;
 	unsigned char *rnd = (unsigned char *)stack_ptr;
 
 	for (int i = 0; i < 16; i++)
 		rnd[i] = (unsigned char)(rand() & 0xff);
 
-	// aliniem stiva la 16 octeti
+	// align stack to 16 bytes
 	stack_ptr = (char *)((uintptr_t)stack_ptr & ~0xFUL);
 
-	// gasim adr program headerului in mem
+	// find the address of the program header in memory
 	Elf64_Addr at_phdr = 0;
 
 	for (int i = 0; i < elf_hdr->e_phnum; i++) {
@@ -250,18 +249,18 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		}
 	}
 
-	// cream vectorii de chei si setam vect auxv pt exec
+	// create key vectors and set auxv vector for execution
 	Elf64_Addr keys[] = {AT_RANDOM, AT_PAGESZ, AT_PHNUM, AT_PHENT, AT_PHDR, AT_ENTRY};
 	Elf64_Addr vals[] = {(Elf64_Addr)rnd, (Elf64_Addr)pg_size, (Elf64_Addr)elf_hdr->e_phnum,
 						(Elf64_Addr)sizeof(Elf64_Phdr), at_phdr, load_base + elf_hdr->e_entry};
 
-	// adaugam la stiva terminatorii pt auxv
+	// add terminators for auxv to the stack
 	stack_ptr -= sizeof(Elf64_Addr);
 	*(Elf64_Addr *)stack_ptr = 0;
 	stack_ptr -= sizeof(Elf64_Addr);
 	*(Elf64_Addr *)stack_ptr = AT_NULL;
 
-	// punem perechile key-value pt auxv in stiva
+	// put key-value pairs for auxv on the stack
 	for (int i = 5; i >= 0; i--) {
 		stack_ptr -= sizeof(Elf64_Addr);
 		*(Elf64_Addr *)stack_ptr = vals[i];
@@ -269,27 +268,27 @@ void load_and_run(const char *filename, int argc, char **argv, char **envp)
 		*(Elf64_Addr *)stack_ptr = keys[i];
 	}
 
-	// punem terminator NULL pt envp
+	// put NULL terminator for envp
 	stack_ptr -= sizeof(char *);
 	*(char **)stack_ptr = NULL;
 
-	// punem pointerii var de mediu in stiva
+	// put environment variable pointers on the stack
 	for (int i = env_cnt - 1; i >= 0; i--) {
 		stack_ptr -= sizeof(char *);
 		*(char **)stack_ptr = env_ptrs[i];
 	}
 
-	// punem terminat NULL pt argv
+	// put NULL terminator for argv
 	stack_ptr -= sizeof(char *);
 	*(char **)stack_ptr = NULL;
 
-	// punem pointerii argm in stiva
+	// put argument pointers on the stack
 	for (int i = argc - 1; i >= 0; i--) {
 		stack_ptr -= sizeof(char *);
 		*(char **)stack_ptr = argv_ptrs[i];
 	}
 
-	// punem argc in stiva,deaspura listei argv
+	// put argc on the stack, on top of the argv list
 	stack_ptr -= sizeof(uint64_t);
 	*(uint64_t *)stack_ptr = (uint64_t)argc;
 
